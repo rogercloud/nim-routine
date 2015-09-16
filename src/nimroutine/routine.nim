@@ -169,7 +169,7 @@ template send[T](msgBox: MsgBox[T], msg: T):stmt {.immediate.}=
       msgBox.lock.acquire()
   msgBox.lock.release()
 
-template recev[T](msgBox: MsgBox[T], msg: T): stmt {.immediate.} =
+template recv[T](msgBox: MsgBox[T], msg: T): stmt {.immediate.} =
   msgBox.lock.acquire()
   while true:
     if msgBox.data.len > 0:
@@ -185,10 +185,26 @@ template recev[T](msgBox: MsgBox[T], msg: T): stmt {.immediate.} =
   msgBox.lock.release()
 
 if isMainModule:
-  iterator cnt(tl: TaskList): BreakState{.closure.} =
+  var msg = createMsgBox[int]()
+
+  iterator cnt1(tl: TaskList): BreakState{.closure.} =
+    var value: int
     for i in 1 .. 5:
-      echo i
-      sleep(1000)
+      send(msg, i)
+      recv(msg, value)
+      assert(value == i)
+    echo "cnt1 done"
     yield BreakState(isContinue: true, isSend: false, msgBoxPtr: nil)  
-  assignTask(cnt, 0)
+
+  iterator cnt2(tl: TaskList): BreakState{.closure.} =
+    var value: int
+    for i in 1 .. 5:
+      recv(msg, value)
+      assert(value == i)
+      send(msg, i)
+    echo "cnt2 done"
+    yield BreakState(isContinue: true, isSend: false, msgBoxPtr: nil)  
+
+  assignTask(cnt1, 0)
+  assignTask(cnt2, 0)
   joinThreads(threadPool)

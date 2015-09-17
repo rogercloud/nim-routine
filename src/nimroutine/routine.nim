@@ -12,16 +12,18 @@ type
     isSend: bool  # this yield is caused by a send operation
     msgBoxPtr: pointer # this msgBox's pointer (void*) that makes this yield
 
-  TaskBody = (iterator(tl: TaskList, t: ptr Task): BreakState{.closure.})
+  TaskBody = (iterator(tl: TaskList, t: ptr Task, arg:pointer): BreakState{.closure.})
   Task = object
     isRunable: bool # if the task is runnable
     task: TaskBody
+    arg: pointer
 
   TaskList = ptr TaskListObj
   TaskListObj = object
     lock: Lock # Protect list
     candiLock: Lock # Protect send and recv candidate
     list: DoublyLinkedRing[Task]
+    size: int # list's size
     recvWaiter: Table[pointer, seq[ptr Task]]
     sendWaiter: Table[pointer, seq[ptr Task]]
     sendCandidate: seq[pointer]
@@ -35,27 +37,7 @@ proc isEmpty(tasks: TaskList): bool=
   result = tasks.list.head == nil
 
 proc run(taskNode: DoublyLinkedNode[Task], tasks: TaskList, t: ptr Task): BreakState {.inline.} =
-  result = taskNode.value.task(tasks, t)
-
-# proc notifySend(tl: TaskList, msgBox: pointer) =
-#   tl.lock.acquire()
-#   if not tl.sendWaiter.hasKey(msgBox):
-#     print("tl recv waiter is empty")
-#     return
-#   for tsk in tl.sendWaiter.mget(msgBox):
-#     tsk.isRunable = true
-#   tl.sendWaiter.mget(msgBox).reset()
-#   tl.lock.release()
-
-# proc notifyRecv(tl: TaskList, msgBox: pointer) =
-#   tl.lock.acquire()
-#   if not tl.recvWaiter.hasKey(msgBox):
-#     print("tl recv waiter is empty")
-#     return
-#   for tsk in tl.recvWaiter.mget(msgBox):
-#     tsk.isRunable = true
-#   tl.recvWaiter.mget(msgBox).reset()
-#   tl.lock.release()
+  result = taskNode.value.task(tasks, t, t.arg)
 
 # Run a task, return false if no runnable task found
 proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsafe.} =
@@ -71,7 +53,9 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
       if not ret.isContinue:
         #print("one task finished")
         let temp = tracker.next
+        tracker.value.arg.deallocShared() # free task argument
         tasks.list.remove(tracker)
+        tasks.size -= 1 
         if tasks.isEmpty:
           #print("tasks is empty")
           tracker = nil
@@ -114,9 +98,22 @@ proc slave(tasks: TaskList) {.thread, gcsafe.} =
       tasks.lock.acquire()
     wakeUp(tasks)
 
-proc assignTask(iter: TaskBody, index: int) =
+proc chooseTaskList: int =
+  var minSize =  taskListPool[0].size
+  var minIndex = 0
+  for i, tl in taskListPool:
+    if tl.size < minSize:
+      minSize = tl.size
+      minIndex = i
+  return minIndex
+
+proc assignTask[T](iter: TaskBody, arg: T) =
+  let index = chooseTaskList()
   taskListPool[index].lock.acquire()
-  taskListPool[index].list.append(Task(isRunable:true, task:iter))
+  var p = cast[ptr T](allocShared0(sizeof(T)))
+  p[] = arg 
+  taskListPool[index].list.append(Task(isRunable:true, task:iter, arg: cast[pointer](p)))
+  taskListPool[index].size += 1
   taskListPool[index].lock.release()
 
 proc initThread(index: int) =
@@ -221,31 +218,34 @@ template recv(msgBox, msg: expr): stmt {.immediate.} =
       msgBox.lock.acquire()
   msgBox.lock.release()
 
-var msgBox1 = createMsgBox[int]()
-var msgBox2 = createMsgBox[int]()
 if isMainModule:
-  iterator cnt1(tl: TaskList, t: ptr Task): BreakState{.closure.} =
+  var msgBox1 = createMsgBox[int]()
+  var msgBox2 = createMsgBox[int]()
+
+  iterator cnt1(tl: TaskList, t: ptr Task, arg: pointer): BreakState{.closure.} =
+    var rArg = (cast[ptr seq[MsgBox[int]]](arg))[]
     var value: int
     for i in 1 .. 5:
       print("cnt1 send: " & $i)
-      send(msgBox1, i)
-      recv(msgBox2, value)
+      send(rArg[0], i)
+      recv(rArg[1], value)
       print("cnt1 recv: " & $value)
       assert(value == i)
     echo "cnt1 done"
     yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
-  iterator cnt2(tl: TaskList, t: ptr Task): BreakState{.closure.} =
+  iterator cnt2(tl: TaskList, t: ptr Task, arg: pointer): BreakState{.closure.} =
+    var rArg = (cast[ptr seq[MsgBox[int]]](arg))[]
     var value: int
     for i in 1 .. 5:
-      recv(msgBox1, value)
+      recv(rArg[0], value)
       print("cnt2 recv: " & $value)
       assert(value == i)
       print("cnt2 send: " & $i)
-      send(msgBox2, i)
+      send(rArg[1], i)
     echo "cnt2 done"
     yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
-  assignTask(cnt1, 0)
-  assignTask(cnt2, 1)
+  assignTask(cnt1, @[msgBox1, msgBox2])
+  assignTask(cnt2, @[msgBox1, msgBox2])
   joinThreads(threadPool)

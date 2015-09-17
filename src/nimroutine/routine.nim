@@ -23,6 +23,7 @@ type
     lock: Lock # Protect list
     candiLock: Lock # Protect send and recv candidate
     list: DoublyLinkedRing[Task]
+    size: int # list's size
     recvWaiter: Table[pointer, seq[ptr Task]]
     sendWaiter: Table[pointer, seq[ptr Task]]
     sendCandidate: seq[pointer]
@@ -54,6 +55,7 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
         let temp = tracker.next
         tracker.value.arg.deallocShared() # free task argument
         tasks.list.remove(tracker)
+        tasks.size -= 1 
         if tasks.isEmpty:
           #print("tasks is empty")
           tracker = nil
@@ -96,11 +98,22 @@ proc slave(tasks: TaskList) {.thread, gcsafe.} =
       tasks.lock.acquire()
     wakeUp(tasks)
 
-proc assignTask[T](iter: TaskBody, index: int, arg: T) =
+proc chooseTaskList: int =
+  var minSize =  taskListPool[0].size
+  var minIndex = 0
+  for i, tl in taskListPool:
+    if tl.size < minSize:
+      minSize = tl.size
+      minIndex = i
+  return minIndex
+
+proc assignTask[T](iter: TaskBody, arg: T) =
+  let index = chooseTaskList()
   taskListPool[index].lock.acquire()
   var p = cast[ptr T](allocShared0(sizeof(T)))
   p[] = arg 
   taskListPool[index].list.append(Task(isRunable:true, task:iter, arg: cast[pointer](p)))
+  taskListPool[index].size += 1
   taskListPool[index].lock.release()
 
 proc initThread(index: int) =
@@ -233,6 +246,6 @@ if isMainModule:
     echo "cnt2 done"
     yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
-  assignTask(cnt1, 0, @[msgBox1, msgBox2])
-  assignTask(cnt2, 1, @[msgBox1, msgBox2])
+  assignTask(cnt1, @[msgBox1, msgBox2])
+  assignTask(cnt2, @[msgBox1, msgBox2])
   joinThreads(threadPool)

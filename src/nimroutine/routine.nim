@@ -52,6 +52,7 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
       if not ret.isContinue:
         #print("one task finished")
         let temp = tracker.next
+        tracker.value.arg.deallocShared() # free task argument
         tasks.list.remove(tracker)
         if tasks.isEmpty:
           #print("tasks is empty")
@@ -207,7 +208,7 @@ template recv(msgBox, msg: expr): stmt {.immediate.} =
 if isMainModule:
   var msgBox1 = createMsgBox[int]()
   var msgBox2 = createMsgBox[int]()
-  
+
   iterator cnt1(tl: TaskList, t: ptr Task, arg: pointer): BreakState{.closure.} =
     var rArg = (cast[ptr seq[MsgBox[int]]](arg))[]
     var value: int

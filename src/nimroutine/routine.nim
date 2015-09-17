@@ -221,6 +221,8 @@ template recv(msgBox, msg: expr): stmt {.immediate.} =
 if isMainModule:
   var msgBox1 = createMsgBox[int]()
   var msgBox2 = createMsgBox[int]()
+  defer: msgBox1.deleteMsgBox()
+  defer: msgBox2.deleteMsgBox()
 
   iterator cnt1(tl: TaskList, t: ptr Task, arg: pointer): BreakState{.closure.} =
     var rArg = (cast[ptr seq[MsgBox[int]]](arg))[]

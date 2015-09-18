@@ -225,29 +225,33 @@ if isMainModule:
   defer: msgBox2.deleteMsgBox()
 
   iterator cnt1(tl: TaskList, t: ptr Task, arg: pointer): BreakState{.closure.} =
-    var rArg = (cast[ptr seq[MsgBox[int]]](arg))[]
+    var rArg = (cast[ptr tuple[a: MsgBox[int], b: MsgBox[int]]](arg))[]
+    var a = rArg.a
+    var b = rArg.b
     var value: int
     for i in 1 .. 5:
       print("cnt1 send: " & $i)
-      send(rArg[0], i)
-      recv(rArg[1], value)
+      send(a, i)
+      recv(b, value)
       print("cnt1 recv: " & $value)
       assert(value == i)
     echo "cnt1 done"
     yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
   iterator cnt2(tl: TaskList, t: ptr Task, arg: pointer): BreakState{.closure.} =
-    var rArg = (cast[ptr seq[MsgBox[int]]](arg))[]
+    var rArg = (cast[ptr tuple[a: MsgBox[int], b: MsgBox[int]]](arg))[]
+    var a = rArg.a
+    var b = rArg.b
     var value: int
     for i in 1 .. 5:
-      recv(rArg[0], value)
+      recv(a, value)
       print("cnt2 recv: " & $value)
       assert(value == i)
       print("cnt2 send: " & $i)
-      send(rArg[1], i)
+      send(b, i)
     echo "cnt2 done"
     yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
-  assignTask(cnt1, @[msgBox1, msgBox2])
-  assignTask(cnt2, @[msgBox1, msgBox2])
+  assignTask(cnt1, (a: msgBox1, b: msgBox2))
+  assignTask(cnt2, (a: msgBox1, b: msgBox2))
   joinThreads(threadPool)

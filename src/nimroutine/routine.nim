@@ -107,7 +107,7 @@ proc chooseTaskList: int =
       minIndex = i
   return minIndex
 
-proc assignTask[T](iter: TaskBody, arg: T) =
+proc pRun[T](iter: TaskBody, arg: T) =
   let index = chooseTaskList()
   taskListPool[index].lock.acquire()
   var p = cast[ptr T](allocShared0(sizeof(T)))
@@ -333,6 +333,6 @@ if isMainModule:
     echo "cnt2 done"
     yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
-  assignTask(cnt1, (a: msgBox1, b: msgBox2))
-  assignTask(cnt2, (a: msgBox1, b: msgBox2))
+  pRun cnt1, (a: msgBox1, b: msgBox2)
+  pRun cnt2, (a: msgBox1, b: msgBox2)
   joinThreads(threadPool)

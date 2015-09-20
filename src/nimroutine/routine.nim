@@ -107,7 +107,7 @@ proc chooseTaskList: int =
       minIndex = i
   return minIndex
 
-proc pRun[T](iter: TaskBody, arg: T) =
+proc pRun* [T](iter: TaskBody, arg: T) =
   let index = chooseTaskList()
   taskListPool[index].lock.acquire()
   var p = cast[ptr T](allocShared0(sizeof(T)))
@@ -134,7 +134,7 @@ setup()
 
 # MsgBox
 type
-  MsgBox[T] = ptr MsgBoxObject[T]
+  MsgBox* [T] = ptr MsgBoxObject[T]
   MsgBoxObject[T] = object
     cap: int  # capability of this MsgBox, if < 0, unlimited
     size: int # real size of this MsgBox
@@ -143,7 +143,7 @@ type
     recvWaiter: seq[TaskList]  # recv waiter's TaskList
     sendWaiter: seq[TaskList]  # send waiter's TaskList
 
-proc createMsgBox[T](cap:int = -1): MsgBox[T] =
+proc createMsgBox* [T](cap:int = -1): MsgBox[T] =
   result = cast[MsgBox[T]](allocShared0(sizeof(MsgBoxObject[T])))
   result.cap = cap 
   result.size = 0
@@ -152,7 +152,7 @@ proc createMsgBox[T](cap:int = -1): MsgBox[T] =
   result.recvWaiter = newSeq[TaskList]()
   result.sendWaiter = newSeq[TaskList]()
 
-proc deleteMsgBox[T](msgBox: MsgBox[T]) =
+proc deleteMsgBox* [T](msgBox: MsgBox[T]) =
   msgBox.lock.deinitLock()
   msgBox.deallocShared()    
 
@@ -184,7 +184,7 @@ proc notifyRecv[T](msgBox: MsgBox[T]) =
     tl.candiLock.release()
   msgBox.recvWaiter = newSeq[TaskList]()
 
-template send(msgBox, msg: expr):stmt {.immediate.}=
+template send*(msgBox, msg: expr):stmt {.immediate.}=
   msgBox.lock.acquire()
   while true:
     if msgBox.cap < 0 or msgBox.size < msgBox.cap:
@@ -200,7 +200,7 @@ template send(msgBox, msg: expr):stmt {.immediate.}=
       msgBox.lock.acquire()
   msgBox.lock.release()
 
-template recv(msgBox, msg: expr): stmt {.immediate.} =
+template recv*(msgBox, msg: expr): stmt {.immediate.} =
   msgBox.lock.acquire()
   while true:
     if msgBox.size > 0:

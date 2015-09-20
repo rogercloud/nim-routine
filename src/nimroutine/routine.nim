@@ -1,4 +1,4 @@
-import os, locks, lists, tables
+import os, locks, lists, tables, macros
 
 const debug = true
 proc print[T](data: T) =
@@ -218,16 +218,100 @@ template recv(msgBox, msg: expr): stmt {.immediate.} =
       msgBox.lock.acquire()
   msgBox.lock.release()
 
+## Macro
+proc getName(node: NimNode): string {.compileTime.} =
+  case node.kind
+  of nnkPostfix:
+    return $node[1].ident
+  of nnkIdent:
+    return $node.ident
+  of nnkEmpty:
+    return "anonymous"
+  else:
+    error("Unknown name.")
+
+proc routineSingleProc(prc: NimNode): NimNode {.compileTime.} =
+  if prc.kind notin {nnkProcDef, nnkLambda}:
+    error("Cannot transform this node kind into an nim routine." &
+          " Proc definition or lambda node expected.")
+
+  hint("Processing " & prc[0].getName & " as an nim routine")
+
+  let returnType = prc[3][0]
+
+  # Verify that the return type is a void or Empty
+  if returnType.kind != nnkEmpty and not (returnType.kind == nnkIdent and returnType[0].ident == !"void"):
+    error("Expected return type of void got '" & $returnType & "'")
+  else:
+    hint("return type is void or empty")
+
+  var procBody = prc[6]
+
+  # -> var rArg = (cast[ptr tuple[arg1: T1, arg2: T2, ...]](arg))[]
+  var rArgAssignment = newNimNode(nnkVarSection)
+  var tupleList = newNimNode(nnkTupleTy)
+  for i in 1 ..< prc[3].len:
+    let param = prc[3][i]
+    assert(param.kind == nnkIdentDefs)
+    tupleList.add(param)
+  rArgAssignment.add(
+    newIdentDefs(
+      ident("rArg"), 
+      newEmptyNode(),
+      newNimNode(nnkBracketExpr).add(
+        newNimNode(nnkPar).add(
+          newNimNode(nnkCast).add(
+            newNimNode(nnkPtrTy).add(tupleList), 
+            newIdentNode("arg"))))))
+
+  # -> var arg1 = rArg.arg1
+  # -> var arg2 = rArg.arg2
+  # -> ...
+  for i in 1 ..< prc[3].len:
+    let param = prc[3][i]
+    assert(param.kind == nnkIdentDefs)
+    for j in 0 .. param.len - 3:
+      rArgAssignment.add(
+        newIdentDefs(
+          param[j],
+          newEmptyNode(),
+          newNimNode(nnkDotExpr).add(
+            ident("rArg"),
+            param[j])))
+
+  procBody.insert(0, rArgAssignment)
+
+  var closureIterator = newProc(
+    newIdentNode($prc[0].getName), 
+    [
+      newIdentNode("BreakState"), 
+      newIdentDefs(ident("tl"), ident("TaskList")),
+      newIdentDefs(ident("t"), newNimNode(nnkPtrTy).add(newIdentNode("Task"))),
+      newIdentDefs(ident("arg"), ident("pointer"))
+    ],
+    procBody,
+    nnkIteratorDef)
+
+  closureIterator[4] = newNimNode(nnkPragma).add(newIdentNode("closure"))
+  result = closureIterator 
+
+macro routine*(prc: stmt): stmt {.immediate.} =
+  ## Macro which processes async procedures into the appropriate
+  ## iterators and yield statements.
+  if prc.kind == nnkStmtList:
+    result = newStmtList()
+    for oneProc in prc:
+      result.add routineSingleProc(oneProc)
+  else:
+    result = routineSingleProc(prc)
+
 if isMainModule:
   var msgBox1 = createMsgBox[int]()
   var msgBox2 = createMsgBox[int]()
   defer: msgBox1.deleteMsgBox()
   defer: msgBox2.deleteMsgBox()
 
-  iterator cnt1(tl: TaskList, t: ptr Task, arg: pointer): BreakState{.closure.} =
-    var rArg = (cast[ptr tuple[a: MsgBox[int], b: MsgBox[int]]](arg))[]
-    var a = rArg.a
-    var b = rArg.b
+  proc cnt1(a, b: MsgBox[int]) {.routine.} =
     var value: int
     for i in 1 .. 5:
       print("cnt1 send: " & $i)
@@ -238,10 +322,7 @@ if isMainModule:
     echo "cnt1 done"
     yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
-  iterator cnt2(tl: TaskList, t: ptr Task, arg: pointer): BreakState{.closure.} =
-    var rArg = (cast[ptr tuple[a: MsgBox[int], b: MsgBox[int]]](arg))[]
-    var a = rArg.a
-    var b = rArg.b
+  proc cnt2(a, b: MsgBox[int]) {.routine.} =
     var value: int
     for i in 1 .. 5:
       recv(a, value)

@@ -36,6 +36,9 @@ var threadPool= newSeq[Thread[TaskList]](threadPoolSize)
 proc isEmpty(tasks: TaskList): bool=
   result = tasks.list.head == nil
 
+proc isEmpty(tasks: TaskListObj): bool=
+  result = tasks.list.head == nil
+
 proc run(taskNode: DoublyLinkedNode[Task], tasks: TaskList, t: ptr Task): BreakState {.inline.} =
   result = taskNode.value.task(tasks, t, t.arg)
 
@@ -305,6 +308,18 @@ macro routine*(prc: stmt): stmt {.immediate.} =
   else:
     result = routineSingleProc(prc)
 
+proc waitAllRoutine* =
+  var allFinished = true
+  while true:
+    for i in 0 ..< threadPoolSize:
+      if not taskListPool[i].isEmpty:
+        allFinished = false
+        break
+    if allFinished:
+      return  
+    allFinished = true
+    sleep(10)
+
 if isMainModule:
   var msgBox1 = createMsgBox[int]()
   var msgBox2 = createMsgBox[int]()
@@ -335,4 +350,4 @@ if isMainModule:
 
   pRun cnt1, (a: msgBox1, b: msgBox2)
   pRun cnt2, (a: msgBox1, b: msgBox2)
-  joinThreads(threadPool)
+  waitAllRoutine()

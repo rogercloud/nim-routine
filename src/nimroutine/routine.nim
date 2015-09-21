@@ -7,19 +7,20 @@ proc print[T](data: T) =
 
 # Thread
 type
-  BreakState = object
+  BreakState* = object
     isContinue: bool # tell whether this yield need to be continued later
     isSend: bool  # this yield is caused by a send operation
     msgBoxPtr: pointer # this msgBox's pointer (void*) that makes this yield
 
-  TaskBody = (iterator(tl: TaskList, t: ptr Task, arg:pointer): BreakState{.closure.})
-  Task = object
+  TaskBody* = (iterator(tl: TaskList, t: ptr Task, arg:pointer): BreakState{.closure.})
+  Task* = object
     isRunable: bool # if the task is runnable
     task: TaskBody
     arg: pointer
 
-  TaskList = ptr TaskListObj
+  TaskList* = ptr TaskListObj
   TaskListObj = object
+    index: int # for debug
     lock: Lock # Protect list
     candiLock: Lock # Protect send and recv candidate
     list: DoublyLinkedRing[Task]
@@ -49,8 +50,10 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
 
   while not tasks.isEmpty:
     if tracker.value.isRunable:
+      print($tasks.index & "run re")
       tasks.lock.release()
       let ret = tracker.run(tasks, tracker.value.addr)
+      print($tasks.index & "run ac")
       tasks.lock.acquire()
 
       if not ret.isContinue:
@@ -60,7 +63,7 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
         tasks.list.remove(tracker)
         tasks.size -= 1 
         if tasks.isEmpty:
-          #print("tasks is empty")
+          print("tasks is empty")
           tracker = nil
         else:
           tracker = temp
@@ -69,6 +72,7 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
       tracker = tracker.next
       if tracker == start:
         return false
+
   return false      
 
 proc wakeUp(tasks: TaskList) =
@@ -92,12 +96,15 @@ proc wakeUp(tasks: TaskList) =
 
 proc slave(tasks: TaskList) {.thread, gcsafe.} =
   var tracker:DoublyLinkedNode[Task] = nil
+  print($tasks.index & "init ac")
   tasks.lock.acquire()
   while true:
     if not runTask(tasks, tracker):
+      print($tasks.index & "sleep re")
       tasks.lock.release()
       #print("task list is empty:" & $(tasks.isEmpty))
-      sleep(10)
+      sleep(1000)
+      print($tasks.index & "sleep ac")
       tasks.lock.acquire()
     wakeUp(tasks)
 
@@ -112,14 +119,18 @@ proc chooseTaskList: int =
 
 proc pRun* [T](iter: TaskBody, arg: T) =
   let index = chooseTaskList()
-  taskListPool[index].lock.acquire()
+  echo "pRun, index: ", index
   var p = cast[ptr T](allocShared0(sizeof(T)))
   p[] = arg 
+  print($index & "assign ac")
+  taskListPool[index].lock.acquire()
   taskListPool[index].list.append(Task(isRunable:true, task:iter, arg: cast[pointer](p)))
   taskListPool[index].size += 1
+  print($index & "assign re")
   taskListPool[index].lock.release()
 
 proc initThread(index: int) =
+  taskListPool[index].index = index
   taskListPool[index].list = initDoublyLinkedRing[Task]()
   taskListPool[index].lock.initLock()    
   taskListPool[index].candiLock.initLock()    
@@ -248,6 +259,8 @@ proc routineSingleProc(prc: NimNode): NimNode {.compileTime.} =
   else:
     hint("return type is void or empty")
 
+  result = newStmtList()
+
   var procBody = prc[6]
 
   # -> var rArg = (cast[ptr tuple[arg1: T1, arg2: T2, ...]](arg))[]
@@ -296,7 +309,22 @@ proc routineSingleProc(prc: NimNode): NimNode {.compileTime.} =
     nnkIteratorDef)
 
   closureIterator[4] = newNimNode(nnkPragma).add(newIdentNode("closure"))
-  result = closureIterator 
+
+  # # -> var cntIter: TaskBody
+  # result.add(
+  #   newNimNode(nnkVarSection).add(
+  #     newNimNode(nnkIdentDefs).add(
+  #       ident($prc[0].getName & "Iter"),
+  #       ident("TaskBody"),
+  #       newEmptyNode())))
+
+  result.add(closureIterator)
+
+  # # -> cntIter = cnt
+  # result.add(
+  #   newNimNode(nnkAsgn).add(
+  #     ident($prc[0].getName & "Iter"),
+  #     ident($prc[0].getName)))
 
 macro routine*(prc: stmt): stmt {.immediate.} =
   ## Macro which processes async procedures into the appropriate

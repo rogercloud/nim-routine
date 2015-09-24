@@ -1,6 +1,6 @@
 import os, locks, lists, tables, macros
 
-const debug = true
+const debug = false
 proc print[T](data: T) =
   when debug:
     echo data
@@ -103,7 +103,7 @@ proc slave(tasks: TaskList) {.thread, gcsafe.} =
       print($tasks.index & "sleep re")
       tasks.lock.release()
       #print("task list is empty:" & $(tasks.isEmpty))
-      sleep(1000)
+      sleep(10)
       print($tasks.index & "sleep ac")
       tasks.lock.acquire()
     wakeUp(tasks)
@@ -119,7 +119,7 @@ proc chooseTaskList: int =
 
 proc pRun* [T](iter: TaskBody, arg: T) =
   let index = chooseTaskList()
-  echo "pRun, index: ", index
+  print ("pRun, index: " & $index)
   var p = cast[ptr T](allocShared0(sizeof(T)))
   p[] = arg 
   print($index & "assign ac")
@@ -307,24 +307,11 @@ proc routineSingleProc(prc: NimNode): NimNode {.compileTime.} =
     ],
     procBody,
     nnkIteratorDef)
-
   closureIterator[4] = newNimNode(nnkPragma).add(newIdentNode("closure"))
 
-  # # -> var cntIter: TaskBody
-  # result.add(
-  #   newNimNode(nnkVarSection).add(
-  #     newNimNode(nnkIdentDefs).add(
-  #       ident($prc[0].getName & "Iter"),
-  #       ident("TaskBody"),
-  #       newEmptyNode())))
-
+  # Add generic
+  closureIterator[2] = prc[2]
   result.add(closureIterator)
-
-  # # -> cntIter = cnt
-  # result.add(
-  #   newNimNode(nnkAsgn).add(
-  #     ident($prc[0].getName & "Iter"),
-  #     ident($prc[0].getName)))
 
 macro routine*(prc: stmt): stmt {.immediate.} =
   ## Macro which processes async procedures into the appropriate

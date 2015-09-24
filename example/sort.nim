@@ -1,4 +1,4 @@
-import ..\src\nimroutine\routine, math, times, sequtils, os
+import nimroutine\routine, math, times, sequtils, os
 
 proc quickSort(a: ptr seq[int], lo, hi: int, deep: int) {.routine.}=
     #echo "deep: ", deep

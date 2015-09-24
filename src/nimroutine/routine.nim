@@ -50,10 +50,10 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
 
   while not tasks.isEmpty:
     if tracker.value.isRunable:
-      print($tasks.index & "run re")
+      #print($tasks.index & "run re")
       tasks.lock.release()
       let ret = tracker.run(tasks, tracker.value.addr)
-      print($tasks.index & "run ac")
+      #print($tasks.index & "run ac")
       tasks.lock.acquire()
 
       if not ret.isContinue:
@@ -63,7 +63,7 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
         tasks.list.remove(tracker)
         tasks.size -= 1 
         if tasks.isEmpty:
-          print("tasks is empty")
+          #print("tasks is empty")
           tracker = nil
         else:
           tracker = temp
@@ -96,15 +96,15 @@ proc wakeUp(tasks: TaskList) =
 
 proc slave(tasks: TaskList) {.thread, gcsafe.} =
   var tracker:DoublyLinkedNode[Task] = nil
-  print($tasks.index & "init ac")
+  #print($tasks.index & "init ac")
   tasks.lock.acquire()
   while true:
     if not runTask(tasks, tracker):
-      print($tasks.index & "sleep re")
+      #print($tasks.index & "sleep re")
       tasks.lock.release()
       #print("task list is empty:" & $(tasks.isEmpty))
       sleep(10)
-      print($tasks.index & "sleep ac")
+      #print($tasks.index & "sleep ac")
       tasks.lock.acquire()
     wakeUp(tasks)
 
@@ -119,14 +119,14 @@ proc chooseTaskList: int =
 
 proc pRun* [T](iter: TaskBody, arg: T) =
   let index = chooseTaskList()
-  print ("pRun, index: " & $index)
+  #print ("pRun, index: " & $index)
   var p = cast[ptr T](allocShared0(sizeof(T)))
   p[] = arg 
-  print($index & "assign ac")
+  #print($index & "assign ac")
   taskListPool[index].lock.acquire()
   taskListPool[index].list.append(Task(isRunable:true, task:iter, arg: cast[pointer](p)))
   taskListPool[index].size += 1
-  print($index & "assign re")
+  #print($index & "assign re")
   taskListPool[index].lock.release()
 
 proc initThread(index: int) =
@@ -199,11 +199,14 @@ proc notifyRecv[T](msgBox: MsgBox[T]) =
   msgBox.recvWaiter = newSeq[TaskList]()
 
 template send*(msgBox, msg: expr):stmt {.immediate.}=
+  print("template send acquire")
   msgBox.lock.acquire()
+  print("template send after acquire")
   while true:
     if msgBox.cap < 0 or msgBox.size < msgBox.cap:
       msgBox.data.append(msg)
       msgBox.size += 1
+      print("notifyRecv")
       notifyRecv(msgBox)
       break
     else:  
@@ -215,9 +218,12 @@ template send*(msgBox, msg: expr):stmt {.immediate.}=
   msgBox.lock.release()
 
 template recv*(msgBox, msg: expr): stmt {.immediate.} =
+  print("template recv acquire")
   msgBox.lock.acquire()
+  print("template recv after acquire")
   while true:
     if msgBox.size > 0:
+      print("template recv")
       msg = msgBox.data.head.value
       msgBox.data.remove(msgBox.data.head)  # O(1)
       msgBox.size -= 1
@@ -334,35 +340,3 @@ proc waitAllRoutine* =
       return  
     allFinished = true
     sleep(10)
-
-if isMainModule:
-  var msgBox1 = createMsgBox[int]()
-  var msgBox2 = createMsgBox[int]()
-  defer: msgBox1.deleteMsgBox()
-  defer: msgBox2.deleteMsgBox()
-
-  proc cnt1(a, b: MsgBox[int]) {.routine.} =
-    var value: int
-    for i in 1 .. 5:
-      print("cnt1 send: " & $i)
-      send(a, i)
-      recv(b, value)
-      print("cnt1 recv: " & $value)
-      assert(value == i)
-    echo "cnt1 done"
-    yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
-
-  proc cnt2(a, b: MsgBox[int]) {.routine.} =
-    var value: int
-    for i in 1 .. 5:
-      recv(a, value)
-      print("cnt2 recv: " & $value)
-      assert(value == i)
-      print("cnt2 send: " & $i)
-      send(b, i)
-    echo "cnt2 done"
-    yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
-
-  pRun cnt1, (a: msgBox1, b: msgBox2)
-  pRun cnt2, (a: msgBox1, b: msgBox2)
-  waitAllRoutine()

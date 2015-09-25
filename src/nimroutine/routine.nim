@@ -156,6 +156,7 @@ type
     cap: int  # capability of this MsgBox, if < 0, unlimited
     size: int # real size of this MsgBox
     lock: Lock  # MsgBox protection lock
+    isSync: bool # sync msgBox flag
     data: DoublyLinkedList[T]  # data holder
     recvWaiter: seq[TaskList]  # recv waiter's TaskList
     sendWaiter: seq[TaskList]  # send waiter's TaskList
@@ -164,10 +165,15 @@ proc createMsgBox* [T](cap:int = -1): MsgBox[T] =
   result = cast[MsgBox[T]](allocShared0(sizeof(MsgBoxObject[T])))
   result.cap = cap 
   result.size = 0
+  result.isSync = false
   result.lock.initLock()
   result.data = initDoublyLinkedList[T]()
   result.recvWaiter = newSeq[TaskList]()
   result.sendWaiter = newSeq[TaskList]()
+
+proc createSyncMsgBox* [T]: MsgBox[T] =
+  result = createMsgBox[T](1)
+  result.isSync = true
 
 proc deleteMsgBox* [T](msgBox: MsgBox[T]) =
   msgBox.lock.deinitLock()
@@ -201,6 +207,13 @@ proc notifyRecv[T](msgBox: MsgBox[T]) =
     tl.candiLock.release()
   msgBox.recvWaiter = newSeq[TaskList]()
 
+template sendWaitForMsgBox(tl, msgBox, t: expr):stmt {.immediate.} =
+  registerSend(tl, msgBox, t)
+  t.isRunable = false
+  msgBox.lock.release()
+  yield BreakState(isContinue: true, isSend: true, msgBoxPtr: cast[pointer](msgBox))
+  msgBox.lock.acquire()
+
 template send*(msgBox, msg: expr):stmt {.immediate.}=
   print("template send acquire")
   msgBox.lock.acquire()
@@ -211,13 +224,11 @@ template send*(msgBox, msg: expr):stmt {.immediate.}=
       msgBox.size += 1
       print("notifyRecv")
       notifyRecv(msgBox)
+      if msgBox.isSync: # sync msgBox
+        sendWaitForMsgBox(tl, msgBox, t)
       break
     else:  
-      registerSend(tl, msgBox, t)
-      t.isRunable = false
-      msgBox.lock.release()
-      yield BreakState(isContinue: true, isSend: true, msgBoxPtr: cast[pointer](msgBox))
-      msgBox.lock.acquire()
+      sendWaitForMsgBox(tl, msgBox, t)
   msgBox.lock.release()
 
 template recv*(msgBox, msg: expr): stmt {.immediate.} =

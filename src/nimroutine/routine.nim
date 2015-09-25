@@ -1,4 +1,4 @@
-import os, locks, lists, tables, macros
+import os, locks, lists, tables, macros, cpuinfo
 
 const debug = false
 proc print[T](data: T) =
@@ -30,7 +30,7 @@ type
     sendCandidate: seq[pointer]
     recvCandidate: seq[pointer]
 
-const threadPoolSize = 4.Natural
+var threadPoolSize = 4.Natural
 var taskListPool = newSeq[TaskListObj](threadPoolSize)
 var threadPool= newSeq[Thread[TaskList]](threadPoolSize)
 
@@ -103,7 +103,7 @@ proc slave(tasks: TaskList) {.thread, gcsafe.} =
       #print($tasks.index & "sleep re")
       tasks.lock.release()
       #print("task list is empty:" & $(tasks.isEmpty))
-      sleep(10)
+      sleep(0)
       #print($tasks.index & "sleep ac")
       tasks.lock.acquire()
     wakeUp(tasks)
@@ -144,6 +144,9 @@ proc setup =
   for i in 0..<threadPoolSize:
     initThread(i)
 
+var cpuCount = countProcessors()
+if cpuCount != 0:
+  threadPoolSize = cpuCount
 setup() 
 
 # MsgBox
@@ -339,4 +342,4 @@ proc waitAllRoutine* =
     if allFinished:
       return  
     allFinished = true
-    sleep(10)
+    sleep(0)

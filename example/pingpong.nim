@@ -11,7 +11,6 @@ proc ping(a, b: MsgBox[int]) {.routine.} =
     recv(b, value)
     assert(value == i)
   echo "ping done"
-  yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
 proc pong(a, b: MsgBox[int]) {.routine.} =
   var value: int
@@ -21,7 +20,6 @@ proc pong(a, b: MsgBox[int]) {.routine.} =
     echo "pong: ", i
     send(b, i)
   echo "pong done"
-  yield BreakState(isContinue: false, isSend: false, msgBoxPtr: nil)  
 
 pRun ping, (a: msgBox1, b: msgBox2)
 pRun pong, (a: msgBox1, b: msgBox2)

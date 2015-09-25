@@ -1,6 +1,6 @@
 import nimroutine\routine, math, times, sequtils, os
 
-proc quickSort(a: ptr seq[int], lo, hi: int, deep: int) {.routine.}=
+proc quickSort[T](a: ptr seq[int], lo, hi: int, deep: int) {.routine.}=
     #echo "deep: ", deep
     if hi <= lo: return
     let pivot = a[int((lo+hi)/2)]
@@ -15,11 +15,11 @@ proc quickSort(a: ptr seq[int], lo, hi: int, deep: int) {.routine.}=
             swap a[i], a[j]
             inc i
             dec j
-    pRun quickSort, (a: a, lo: lo, hi: j, deep: deep+1)
-    pRun quickSort, (a: a, lo: i, hi: hi, deep: deep+1)
+    pRun quickSort[int], (a: a, lo: lo, hi: j, deep: deep+1)
+    pRun quickSort[int], (a: a, lo: i, hi: hi, deep: deep+1)
 
 proc quickSort*(a: ptr seq[int]) =
-    pRun quickSort, (a: a, lo: a[].low, hi: a[].high, deep: 0)
+    pRun quickSort[int], (a: a, lo: a[].low, hi: a[].high, deep: 0)
 
 randomize(int(epochTime()))
 var a = newSeqWith(100, random(100))

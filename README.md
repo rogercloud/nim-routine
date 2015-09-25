@@ -10,5 +10,4 @@ A go routine like nim implementation
 Please refer to example code. More examples are coming.
 
 ## Limit
-+ Not support var param in task.
-+ Generic is not supported.
++ Not support var param in task. Walkaround: ptr.

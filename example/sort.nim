@@ -1,6 +1,6 @@
 import nimroutine\routine, math, times, sequtils, os
 
-proc quickSort[T](a: ptr seq[int], lo, hi: int, deep: int) {.routine.}=
+proc quickSort[T](a: ptr seq[T], lo, hi: int, deep: int) {.routine.}=
     #echo "deep: ", deep
     if hi <= lo: return
     let pivot = a[int((lo+hi)/2)]

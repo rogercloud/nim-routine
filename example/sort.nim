@@ -15,8 +15,8 @@ proc quickSort[T](a: ptr seq[T], lo, hi: int, deep: int) {.routine.}=
             swap a[i], a[j]
             inc i
             dec j
-    pRun quickSort[int], (a: a, lo: lo, hi: j, deep: deep+1)
-    pRun quickSort[int], (a: a, lo: i, hi: hi, deep: deep+1)
+    discard pRun(quickSort[int], (a: a, lo: lo, hi: j, deep: deep+1))
+    discard pRun(quickSort[int], (a: a, lo: i, hi: hi, deep: deep+1))
 
 proc quickSort*(a: ptr seq[int]) =
     pRun quickSort[int], (a: a, lo: a[].low, hi: a[].high, deep: 0)

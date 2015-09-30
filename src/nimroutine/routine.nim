@@ -17,6 +17,8 @@ type
     isRunable: bool # if the task is runnable
     task: TaskBody
     arg: pointer
+    watcher: TaskWatcher
+    hasArg: bool
 
   TaskList* = ptr TaskListObj
   TaskListObj = object
@@ -30,6 +32,11 @@ type
     sendCandidate: seq[pointer]
     recvCandidate: seq[pointer]
 
+  TaskWatcher* = ref TaskWatcherObj
+  TaskWatcherObj = object
+    isFinished: bool
+    lock: Lock
+
 var threadPoolSize = 4.Natural
 var taskListPool = newSeq[TaskListObj](threadPoolSize)
 var threadPool= newSeq[Thread[TaskList]](threadPoolSize)
@@ -41,7 +48,10 @@ proc isEmpty(tasks: TaskListObj): bool=
   result = tasks.list.head == nil
 
 proc run(taskNode: DoublyLinkedNode[Task], tasks: TaskList, t: ptr Task): BreakState {.inline.} =
-  result = taskNode.value.task(tasks, t, t.arg)
+  if t.hasArg:
+    result = taskNode.value.task(tasks, t, t.arg)
+  else:
+    result = taskNode.value.task(tasks, t, nil)
 
 # Run a task, return false if no runnable task found
 proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsafe.} =
@@ -50,16 +60,18 @@ proc runTask(tasks: TaskList, tracker: var DoublyLinkedNode[Task]): bool {.gcsaf
 
   while not tasks.isEmpty:
     if tracker.value.isRunable:
-      #print($tasks.index & "run re")
       tasks.lock.release()
       let ret = tracker.run(tasks, tracker.value.addr)
-      #print($tasks.index & "run ac")
       tasks.lock.acquire()
 
       if not ret.isContinue:
         #print("one task finished")
         let temp = tracker.next
-        tracker.value.arg.deallocShared() # free task argument
+        if tracker.value.arg != nil:
+          tracker.value.arg.deallocShared() # free task argument
+        tracker.value.watcher.lock.acquire()
+        tracker.value.watcher.isFinished = true
+        tracker.value.watcher.lock.release()
         tasks.list.remove(tracker)
         tasks.size -= 1 
         if tasks.isEmpty:
@@ -117,16 +129,29 @@ proc chooseTaskList: int =
       minIndex = i
   return minIndex
 
-proc pRun* [T](iter: TaskBody, arg: T) =
+proc pRun* (iter: TaskBody): TaskWatcher {.discardable.} =
+  new(result)
+  result.lock.initLock()
+  result.isFinished = false
   let index = chooseTaskList()
-  #print ("pRun, index: " & $index)
+
+  taskListPool[index].lock.acquire()
+  taskListPool[index].list.append(Task(isRunable:true, task:iter, arg: nil, watcher: result, hasArg: false))
+  taskListPool[index].size += 1
+  taskListPool[index].lock.release()
+
+proc pRun* [T](iter: TaskBody, arg: T): TaskWatcher {.discardable.} =
+  new(result)
+  result.lock.initLock()
+  result.isFinished = false
+  let index = chooseTaskList()
+
   var p = cast[ptr T](allocShared0(sizeof(T)))
   p[] = arg 
-  #print($index & "assign ac")
+
   taskListPool[index].lock.acquire()
-  taskListPool[index].list.append(Task(isRunable:true, task:iter, arg: cast[pointer](p)))
+  taskListPool[index].list.append(Task(isRunable:true, task:iter, arg: cast[pointer](p), watcher: result, hasArg: true))
   taskListPool[index].size += 1
-  #print($index & "assign re")
   taskListPool[index].lock.release()
 
 proc initThread(index: int) =
@@ -284,38 +309,39 @@ proc routineSingleProc(prc: NimNode): NimNode {.compileTime.} =
   var procBody = prc[6]
 
   # -> var rArg = (cast[ptr tuple[arg1: T1, arg2: T2, ...]](arg))[]
-  var rArgAssignment = newNimNode(nnkVarSection)
-  var tupleList = newNimNode(nnkTupleTy)
-  for i in 1 ..< prc[3].len:
-    let param = prc[3][i]
-    assert(param.kind == nnkIdentDefs)
-    tupleList.add(param)
-  rArgAssignment.add(
-    newIdentDefs(
-      ident("rArg"), 
-      newEmptyNode(),
-      newNimNode(nnkBracketExpr).add(
-        newNimNode(nnkPar).add(
-          newNimNode(nnkCast).add(
-            newNimNode(nnkPtrTy).add(tupleList), 
-            newIdentNode("arg"))))))
+  if prc[3].len > 1:
+    var rArgAssignment = newNimNode(nnkVarSection)
+    var tupleList = newNimNode(nnkTupleTy)
+    for i in 1 ..< prc[3].len:
+      let param = prc[3][i]
+      assert(param.kind == nnkIdentDefs)
+      tupleList.add(param)
+    rArgAssignment.add(
+      newIdentDefs(
+        ident("rArg"), 
+        newEmptyNode(),
+        newNimNode(nnkBracketExpr).add(
+          newNimNode(nnkPar).add(
+            newNimNode(nnkCast).add(
+              newNimNode(nnkPtrTy).add(tupleList), 
+              newIdentNode("arg"))))))
 
-  # -> var arg1 = rArg.arg1
-  # -> var arg2 = rArg.arg2
-  # -> ...
-  for i in 1 ..< prc[3].len:
-    let param = prc[3][i]
-    assert(param.kind == nnkIdentDefs)
-    for j in 0 .. param.len - 3:
-      rArgAssignment.add(
-        newIdentDefs(
-          param[j],
-          newEmptyNode(),
-          newNimNode(nnkDotExpr).add(
-            ident("rArg"),
-            param[j])))
+    # -> var arg1 = rArg.arg1
+    # -> var arg2 = rArg.arg2
+    # -> ...
+    for i in 1 ..< prc[3].len:
+      let param = prc[3][i]
+      assert(param.kind == nnkIdentDefs)
+      for j in 0 .. param.len - 3:
+        rArgAssignment.add(
+          newIdentDefs(
+            param[j],
+            newEmptyNode(),
+            newNimNode(nnkDotExpr).add(
+              ident("rArg"),
+              param[j])))
 
-  procBody.insert(0, rArgAssignment)
+    procBody.insert(0, rArgAssignment)
 
   var closureIterator = newProc(
     newIdentNode($prc[0].getName), 
@@ -353,4 +379,13 @@ proc waitAllRoutine* =
     if allFinished:
       return  
     allFinished = true
+    sleep(0)
+
+proc isDone(watcher: TaskWatcher): bool =
+  watcher.lock.acquire()
+  result = watcher.isFinished
+  watcher.lock.release()
+
+proc wait*(watcher: TaskWatcher) =
+  while not watcher.isDone():
     sleep(0)

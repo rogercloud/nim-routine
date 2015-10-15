@@ -29,6 +29,24 @@ proc foo[T](x: T) {.routine.} =
 pRun foo[int], (x: 1)
 ```
 
++ If the parameter is void?
+```Nim
+proc foo() {.routine.} =
+  echo "routine void param"
+pRun foo
+```
+
++ How to wait a task?
+```Nim
+var watcher = pRun(foo)
+wait(watcher)
+```
+
++ How to wait all tasks?
+```Nim
+waitAllRoutine()
+```
+
 ## MsgBox (Channel)
 There're two kinds of MsgBox: sync and async. For sync msgbox, sender wait until there's a receiver get the message. For async msgbox, send continues running withoug waiting except msgbox is full (holding message count == capacity). Msgbox's capacity is determined while creating.
 

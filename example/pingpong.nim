@@ -21,8 +21,8 @@ proc pong(a, b: MsgBox[int]) {.routine.} =
     send(b, i)
   echo "pong done"
 
-pRun ping, (a: msgBox1, b: msgBox2)
-pRun pong, (a: msgBox1, b: msgBox2)
+pRun ping, (msgBox1, msgBox2)
+pRun pong, (msgBox1, msgBox2)
 
 waitAllRoutine()
 

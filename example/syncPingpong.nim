@@ -20,8 +20,8 @@ proc pong(a: MsgBox[int]) {.routine.} =
     send(a, i)
   echo "pong done"
 
-pRun ping, (a: msgBox)
-pRun pong, (a: msgBox)
+pRun ping, (msgBox)
+pRun pong, (msgBox)
 
 waitAllRoutine()
 

@@ -1,6 +1,6 @@
 [Package]
 name          = "nimroutine"
-version       = "0.1.1"
+version       = "0.1.2"
 author        = "Roger Shi"
 description   = "A go routine like nim implementation"
 license       = "MIT"

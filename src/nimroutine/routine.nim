@@ -255,7 +255,7 @@ template send*(msgBox, msg: expr):stmt {.immediate.}=
       sendWaitForMsgBox(tl, msgBox, t)
   msgBox.lock.release()
 
-template recv*(msgBox, msg: expr): stmt {.immediate.} =
+template recv*(msgBox, msg: untyped): untyped =
   print("template recv acquire")
   msgBox.lock.acquire()
   print("template recv after acquire")
@@ -358,7 +358,7 @@ proc routineSingleProc(prc: NimNode): NimNode {.compileTime.} =
   closureIterator[2] = prc[2]
   result.add(closureIterator)
 
-macro routine*(prc: stmt): stmt {.immediate.} =
+macro routine*(prc: untyped): untyped =
   ## Macro which processes async procedures into the appropriate
   ## iterators and yield statements.
   if prc.kind == nnkStmtList:

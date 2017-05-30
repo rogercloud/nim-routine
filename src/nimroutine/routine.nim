@@ -37,9 +37,11 @@ type
     isFinished: bool
     lock: Lock
 
-var threadPoolSize = 4.Natural
+var threadPoolSize = countProcessors()
+if threadPoolSize == 0:
+  threadPoolSize = 4.Natural
 var taskListPool = newSeq[TaskListObj](threadPoolSize)
-var threadPool= newSeq[Thread[TaskList]](threadPoolSize)
+var threadPool = newSeq[Thread[TaskList]](threadPoolSize)
 
 proc isEmpty(tasks: TaskList): bool=
   result = tasks.list.head == nil
@@ -169,9 +171,6 @@ proc setup =
   for i in 0..<threadPoolSize:
     initThread(i)
 
-var cpuCount = countProcessors()
-if cpuCount != 0:
-  threadPoolSize = cpuCount
 setup() 
 
 # MsgBox

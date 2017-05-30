@@ -1,4 +1,4 @@
-import nimroutine\routine, math, times, sequtils, os
+import nimroutine/routine, math, times, sequtils, os, random
 
 proc quickSort[T](a: ptr seq[T], lo, hi: int, deep: int) {.routine.}=
     if hi <= lo: return

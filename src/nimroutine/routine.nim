@@ -94,7 +94,7 @@ proc wakeUp(tasks: TaskList) =
   if tasks.sendCandidate.len > 0:
     for scMsg in tasks.sendCandidate:
       if tasks.sendWaiter.hasKey(scMsg):
-        for t in tasks.sendWaiter.mget(scMsg):
+        for t in tasks.sendWaiter[scMsg]:
           t.isRunable = true
         tasks.sendWaiter[scMsg] = newSeq[ptr Task]()
     tasks.sendCandidate = newSeq[pointer]()
@@ -102,7 +102,7 @@ proc wakeUp(tasks: TaskList) =
   if tasks.recvCandidate.len > 0:
     for rcMsg in tasks.recvCandidate:
       if tasks.recvWaiter.hasKey(rcMsg):
-        for t in tasks.recvWaiter.mget(rcMsg):
+        for t in tasks.recvWaiter[rcMsg]:
           t.isRunable = true
         tasks.recvWaiter[rcMsg] = newSeq[ptr Task]()
     tasks.recvCandidate = newSeq[pointer]()
@@ -208,14 +208,14 @@ proc registerSend[T](tl: TaskList, msgBox: MsgBox[T], t: ptr Task) =
   let msgBoxPtr = cast[pointer](msgBox)
   if not tl.sendWaiter.hasKey(msgBoxPtr):
     tl.sendWaiter[msgBoxPtr] = newSeq[ptr Task]()
-  tl.sendWaiter.mget(msgBoxPtr).add(t)
+  tl.sendWaiter[msgBoxPtr].add(t)
 
 proc registerRecv[T](tl: TaskList, msgBox: MsgBox[T], t: ptr Task) =   
   msgBox.recvWaiter.add(tl)
   let msgBoxPtr = cast[pointer](msgBox)
   if not tl.recvWaiter.hasKey(msgBoxPtr):
     tl.recvWaiter[msgBoxPtr] = newSeq[ptr Task]()
-  tl.recvWaiter.mget(msgBoxPtr).add(t)
+  tl.recvWaiter[msgBoxPtr].add(t)
 
 proc notifySend[T](msgBox: MsgBox[T]) =
   for tl in msgBox.sendWaiter:
@@ -231,14 +231,14 @@ proc notifyRecv[T](msgBox: MsgBox[T]) =
     tl.candiLock.release()
   msgBox.recvWaiter = newSeq[TaskList]()
 
-template sendWaitForMsgBox(tl, msgBox, t: expr):stmt {.immediate.} =
+template sendWaitForMsgBox(tl, msgBox, t: untyped):untyped =
   registerSend(tl, msgBox, t)
   t.isRunable = false
   msgBox.lock.release()
   yield BreakState(isContinue: true, isSend: true, msgBoxPtr: cast[pointer](msgBox))
   msgBox.lock.acquire()
 
-template send*(msgBox, msg: expr):stmt {.immediate.}=
+template send*(msgBox, msg: untyped):untyped =
   print("template send acquire")
   msgBox.lock.acquire()
   print("template send after acquire")

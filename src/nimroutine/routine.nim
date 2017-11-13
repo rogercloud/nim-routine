@@ -37,9 +37,11 @@ type
     isFinished: bool
     lock: Lock
 
-var threadPoolSize = 4.Natural
+var threadPoolSize = countProcessors()
+if threadPoolSize == 0:
+  threadPoolSize = 4.Natural
 var taskListPool = newSeq[TaskListObj](threadPoolSize)
-var threadPool= newSeq[Thread[TaskList]](threadPoolSize)
+var threadPool = newSeq[Thread[TaskList]](threadPoolSize)
 
 proc isEmpty(tasks: TaskList): bool=
   result = tasks.list.head == nil
@@ -92,7 +94,7 @@ proc wakeUp(tasks: TaskList) =
   if tasks.sendCandidate.len > 0:
     for scMsg in tasks.sendCandidate:
       if tasks.sendWaiter.hasKey(scMsg):
-        for t in tasks.sendWaiter.mget(scMsg):
+        for t in tasks.sendWaiter[scMsg]:
           t.isRunable = true
         tasks.sendWaiter[scMsg] = newSeq[ptr Task]()
     tasks.sendCandidate = newSeq[pointer]()
@@ -100,7 +102,7 @@ proc wakeUp(tasks: TaskList) =
   if tasks.recvCandidate.len > 0:
     for rcMsg in tasks.recvCandidate:
       if tasks.recvWaiter.hasKey(rcMsg):
-        for t in tasks.recvWaiter.mget(rcMsg):
+        for t in tasks.recvWaiter[rcMsg]:
           t.isRunable = true
         tasks.recvWaiter[rcMsg] = newSeq[ptr Task]()
     tasks.recvCandidate = newSeq[pointer]()
@@ -169,9 +171,6 @@ proc setup =
   for i in 0..<threadPoolSize:
     initThread(i)
 
-var cpuCount = countProcessors()
-if cpuCount != 0:
-  threadPoolSize = cpuCount
 setup() 
 
 # MsgBox
@@ -209,14 +208,14 @@ proc registerSend[T](tl: TaskList, msgBox: MsgBox[T], t: ptr Task) =
   let msgBoxPtr = cast[pointer](msgBox)
   if not tl.sendWaiter.hasKey(msgBoxPtr):
     tl.sendWaiter[msgBoxPtr] = newSeq[ptr Task]()
-  tl.sendWaiter.mget(msgBoxPtr).add(t)
+  tl.sendWaiter[msgBoxPtr].add(t)
 
 proc registerRecv[T](tl: TaskList, msgBox: MsgBox[T], t: ptr Task) =   
   msgBox.recvWaiter.add(tl)
   let msgBoxPtr = cast[pointer](msgBox)
   if not tl.recvWaiter.hasKey(msgBoxPtr):
     tl.recvWaiter[msgBoxPtr] = newSeq[ptr Task]()
-  tl.recvWaiter.mget(msgBoxPtr).add(t)
+  tl.recvWaiter[msgBoxPtr].add(t)
 
 proc notifySend[T](msgBox: MsgBox[T]) =
   for tl in msgBox.sendWaiter:
@@ -232,14 +231,14 @@ proc notifyRecv[T](msgBox: MsgBox[T]) =
     tl.candiLock.release()
   msgBox.recvWaiter = newSeq[TaskList]()
 
-template sendWaitForMsgBox(tl, msgBox, t: expr):stmt {.immediate.} =
+template sendWaitForMsgBox(tl, msgBox, t: untyped):untyped =
   registerSend(tl, msgBox, t)
   t.isRunable = false
   msgBox.lock.release()
   yield BreakState(isContinue: true, isSend: true, msgBoxPtr: cast[pointer](msgBox))
   msgBox.lock.acquire()
 
-template send*(msgBox, msg: expr):stmt {.immediate.}=
+template send*(msgBox, msg: untyped):untyped =
   print("template send acquire")
   msgBox.lock.acquire()
   print("template send after acquire")
@@ -256,7 +255,7 @@ template send*(msgBox, msg: expr):stmt {.immediate.}=
       sendWaitForMsgBox(tl, msgBox, t)
   msgBox.lock.release()
 
-template recv*(msgBox, msg: expr): stmt {.immediate.} =
+template recv*(msgBox, msg: untyped): untyped =
   print("template recv acquire")
   msgBox.lock.acquire()
   print("template recv after acquire")
@@ -359,7 +358,7 @@ proc routineSingleProc(prc: NimNode): NimNode {.compileTime.} =
   closureIterator[2] = prc[2]
   result.add(closureIterator)
 
-macro routine*(prc: stmt): stmt {.immediate.} =
+macro routine*(prc: untyped): untyped =
   ## Macro which processes async procedures into the appropriate
   ## iterators and yield statements.
   if prc.kind == nnkStmtList:

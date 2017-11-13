@@ -1,4 +1,4 @@
-import nimroutine\routine, locks
+import nimroutine/routine, locks
 
 var msgBox = createSyncMsgBox[int]()
 

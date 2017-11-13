@@ -1,4 +1,4 @@
-import nimroutine\routine, locks
+import nimroutine/routine, locks
 
 var msgBox1 = createMsgBox[int]()
 var msgBox2 = createMsgBox[int]()

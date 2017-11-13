@@ -1,4 +1,4 @@
-import nimroutine\routine, os
+import nimroutine/routine, os
 
 proc task() {.routine.} =
   sleep(1000)
